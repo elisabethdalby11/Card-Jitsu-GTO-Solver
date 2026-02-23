@@ -288,7 +288,6 @@ def calculate_true_outs(tableau: List[Card], deck: DeckTracker) -> Dict[Element,
             if check_win(list(tuple(tableau) + (test_card,))): outs[element] += cards_remaining
     return outs
 
-@lru_cache(maxsize=10000)
 def get_player_equity(tableau: Tuple[Card, ...], deck: DeckTracker) -> float:
     """Calculates Phase 1 (immediate) and Phase 2 (discounted future) combinatorial equity."""
     if check_win(list(tableau)): return 1.0
@@ -353,9 +352,9 @@ def calculate_best_move(hand: List[Card], my_tableau: List[Card], opp_tableau: L
                     # true tableau discard effects
                     if card.effect.name.startswith("DISCARD_"):
                         target = card.effect.name.split("_")[1]
-                        for c in simulated_opp_tableau:
+                        for idx, c in enumerate(simulated_opp_tableau):
                             if c.element.name == target or c.colour.name == target:
-                                simulated_opp_tableau.remove(c)
+                                simulated_opp_tableau.pop(idx)
                                 break
                                 
                     new_state_value = get_board_value(my_tableau + [card], simulated_opp_tableau, my_deck, opp_deck)
@@ -590,7 +589,7 @@ def play_game():
         pre_round_my_tab, pre_round_opp_tab = list(my_tableau), list(opp_tableau)
         next_block, next_my_mod, next_opp_mod = None, 0, 0
 
-        # --- IMMEDIATE DIALOGUE: SHIFTS ---
+        # immediate effects
         active_effects = [played_card.effect, opp_card.effect]
         if PowerEffect.SHIFT_FIRE_TO_SNOW in active_effects: print("🌀 POWER EFFECT: All Fire becomes Snow this round!")
         if PowerEffect.SHIFT_SNOW_TO_WATER in active_effects: print("🌀 POWER EFFECT: All Snow becomes Water this round!")
@@ -598,7 +597,7 @@ def play_game():
 
         result = resolve_round(played_card, opp_card)
         
-        # --- IMMEDIATE DIALOGUE: TIE BREAKERS ---
+        # tie breaker lookaheads
         if result == 0:
             is_low_wins = (played_card.effect == PowerEffect.LOW_WINS) or (opp_card.effect == PowerEffect.LOW_WINS)
             my_final, opp_final = played_card.value + my_mod, opp_card.value + opp_mod
@@ -610,65 +609,65 @@ def play_game():
             else: 
                 result = 1 if my_final > opp_final else -1 if my_final < opp_final else 0
 
-        # --- POST-WIN DIALOGUE & MODIFIERS ---
+        # winners and power effect resolutions
         if result == 1:
             print("Result: YOU WON!")
             my_tableau.append(played_card)
             
-            if played_card.effect.name.startswith("BLOCK_"):
-                target = played_card.effect.name.split("_")[1]
-                next_block = Element[target]
-                print(f"🚫 POWER EFFECT: Opponent cannot play {target} next turn!")
-                
-            elif played_card.effect == PowerEffect.PLUS_TWO_NEXT_TURN: 
-                next_my_mod = 2
-                print("⬆️ POWER EFFECT: Your next card gets +2!")
-                
-            elif played_card.effect == PowerEffect.MINUS_TWO_NEXT_TURN: 
-                next_opp_mod = -2
-                print("⬇️ POWER EFFECT: Opponent's next card gets -2!")
-                
-            elif played_card.effect.name.startswith("DESTROY_ALL_"): 
-                target = played_card.effect.name.split("_")[2]
-                opp_deck.destroy_all_of_colour(Colour[target])
-                print(f"💥 POWER EFFECT: All opponent's {target} cards destroyed from deck!")
-                
+            # blockers
+            if played_card.effect == PowerEffect.BLOCK_FIRE: next_block = Element.FIRE
+            elif played_card.effect == PowerEffect.BLOCK_WATER: next_block = Element.WATER
+            elif played_card.effect == PowerEffect.BLOCK_SNOW: next_block = Element.SNOW
+            
+            # score modifiers
+            elif played_card.effect == PowerEffect.PLUS_TWO_NEXT_TURN: next_my_mod = 2
+            elif played_card.effect == PowerEffect.MINUS_TWO_NEXT_TURN: next_opp_mod = -2
+            
+            # hand destructions
+            elif played_card.effect == PowerEffect.DESTROY_ALL_RED: opp_deck.destroy_all_of_colour(Colour.RED)
+            elif played_card.effect == PowerEffect.DESTROY_ALL_BLUE: opp_deck.destroy_all_of_colour(Colour.BLUE)
+            elif played_card.effect == PowerEffect.DESTROY_ALL_GREEN: opp_deck.destroy_all_of_colour(Colour.GREEN)
+            elif played_card.effect == PowerEffect.DESTROY_ALL_YELLOW: opp_deck.destroy_all_of_colour(Colour.YELLOW)
+            elif played_card.effect == PowerEffect.DESTROY_ALL_ORANGE: opp_deck.destroy_all_of_colour(Colour.ORANGE)
+            elif played_card.effect == PowerEffect.DESTROY_ALL_PURPLE: opp_deck.destroy_all_of_colour(Colour.PURPLE)
+            
+            # tableau discards
             elif played_card.effect.name.startswith("DISCARD_"):
-                target = played_card.effect.name.split("_")[1] 
+                target = played_card.effect.name.split("_")[1] # e.g., "FIRE" or "RED"
                 for c in opp_tableau:
                     if c.element.name == target or c.colour.name == target:
                         opp_tableau.remove(c)
-                        print(f"💥 POWER EFFECT: Destroyed opponent's {c} from tableau!")
+                        print(f"💥 POWER EFFECT: Destroyed opponent's {c}!")
                         break
 
         elif result == -1:
             print("Result: OPPONENT WON!")
             opp_tableau.append(opp_card)
             
-            if opp_card.effect.name.startswith("BLOCK_"):
-                target = opp_card.effect.name.split("_")[1]
-                next_block = Element[target]
-                print(f"🚫 POWER EFFECT: Opponent blocked you from playing {target} next turn!")
-                
-            elif opp_card.effect == PowerEffect.PLUS_TWO_NEXT_TURN: 
-                next_opp_mod = 2
-                print("⬆️ POWER EFFECT: Opponent's next card gets +2!")
-                
-            elif opp_card.effect == PowerEffect.MINUS_TWO_NEXT_TURN: 
-                next_my_mod = -2
-                print("⬇️ POWER EFFECT: Your next card gets -2!")
-                
-            elif opp_card.effect.name.startswith("DESTROY_ALL_"): 
-                target = opp_card.effect.name.split("_")[2]
-                my_deck.destroy_all_of_colour(Colour[target])
-                print(f"💥 POWER EFFECT: All your {target} cards destroyed from deck!")
-                
+            # blockers
+            if opp_card.effect == PowerEffect.BLOCK_FIRE: next_block = Element.FIRE
+            elif opp_card.effect == PowerEffect.BLOCK_WATER: next_block = Element.WATER
+            elif opp_card.effect == PowerEffect.BLOCK_SNOW: next_block = Element.SNOW
+            
+            # score modifiers
+            elif opp_card.effect == PowerEffect.PLUS_TWO_NEXT_TURN: next_opp_mod = 2
+            elif opp_card.effect == PowerEffect.MINUS_TWO_NEXT_TURN: next_my_mod = -2
+            
+            # hand destructions
+            elif opp_card.effect == PowerEffect.DESTROY_ALL_RED: my_deck.destroy_all_of_colour(Colour.RED)
+            elif opp_card.effect == PowerEffect.DESTROY_ALL_BLUE: my_deck.destroy_all_of_colour(Colour.BLUE)
+            elif opp_card.effect == PowerEffect.DESTROY_ALL_GREEN: my_deck.destroy_all_of_colour(Colour.GREEN)
+            elif opp_card.effect == PowerEffect.DESTROY_ALL_YELLOW: my_deck.destroy_all_of_colour(Colour.YELLOW)
+            elif opp_card.effect == PowerEffect.DESTROY_ALL_ORANGE: my_deck.destroy_all_of_colour(Colour.ORANGE)
+            elif opp_card.effect == PowerEffect.DESTROY_ALL_PURPLE: my_deck.destroy_all_of_colour(Colour.PURPLE)
+            
+            # tableau discards
             elif opp_card.effect.name.startswith("DISCARD_"):
                 target = opp_card.effect.name.split("_")[1] 
                 for c in my_tableau:
                     if c.element.name == target or c.colour.name == target:
                         my_tableau.remove(c)
-                        print(f"💥 POWER EFFECT: Opponent destroyed your {c} from tableau!")
+                        print(f"💥 POWER EFFECT: Opponent destroyed your {c}!")
                         break
 
         opp_deck.remove_card(opp_card)
@@ -718,5 +717,5 @@ def run_training_simulation(iterations: int = 10000):
 if __name__ == "__main__":
     # to play the game interactively, uncomment the line below and comment out the training simulation.
 
-    play_game() 
+    # play_game() 
     run_training_simulation(10000)
