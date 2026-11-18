@@ -11,7 +11,6 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 import itertools
-from functools import lru_cache
 import copy
 
 # enums and core data structures
@@ -572,7 +571,6 @@ def play_game():
     round_num = 1
 
     while True:
-        get_player_equity.cache_clear() 
         print(f"\n=== ROUND {round_num} ===")
         print(f"My Tableau:  {my_tableau} | Modifier: {my_mod}")
         print(f"Opp Tableau: {opp_tableau} | Modifier: {opp_mod}")
@@ -715,7 +713,11 @@ def run_training_simulation(iterations: int = 10000):
     for idx, prob in optimal_strategy_p2.items(): print(f"> {p2_hand[idx]}: {prob * 100:.2f}%")
 
 if __name__ == "__main__":
-    # to play the game interactively, uncomment the line below and comment out the training simulation.
+    import argparse
+    parser = argparse.ArgumentParser(description="Card-Jitsu solver")
+    parser.add_argument("--play", action="store_true", help="play a live game with the exploitative bot")
+    parser.add_argument("--iterations", type=int, default=10000, help="CFR training iterations")
+    args = parser.parse_args()
 
-    # play_game() 
-    run_training_simulation(10000)
+    if args.play: play_game()
+    else: run_training_simulation(args.iterations)
