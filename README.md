@@ -1,44 +1,47 @@
-# Card-Jitsu Game Theory Optimal (GTO) Solver
+# Card-Jitsu Solver
 
-A rigorous mathematical engine that reverse-engineers the Club Penguin minigame 'Card-Jitsu' into a complex model of imperfect information, simultaneous decision-making, and dynamic probability. 
+A Python solver for Card-Jitsu, the simultaneous-move card game from Club Penguin, modelled as a two-player game of imperfect information. The project contains two AI players:
 
-This project proves that beneath the nostalgic surface of a children's flash game lies a mathematical environment as complex as modern poker, featuring depleting drafted decks, state-dependent constraints, and mid-turn matrix warping.
+- **an exploitative bot** that models its opponent with Bayesian inference and plays to beat them, and
+- **an equilibrium (GTO) bot** that uses counterfactual regret minimisation (CFR) to approximate a Nash equilibrium strategy that cannot be exploited.
 
-## Core Architectures
+The game is a useful test case because it extends rock-paper-scissors with depleting hands, card values, colour-based win conditions and "power cards" that change the rules mid-round.
 
-This engine features two distinct AI systems, allowing you to test human psychology against cold, hard game theory.
+## The game model
 
-### 1. The Exploitative Bot (Bayesian Inference)
-Built for interactive play against humans. This bot tracks your tendencies using a Level-K reasoning model.
-* **Combinatorial Equity:** It evaluates the board state by calculating "True Outs" (winning cards) across both Immediate (Phase 1) and Discounted Future (Phase 2) draws.
-* **Bayesian Updating:** It applies Bayes' Theorem after every round to dynamically update its belief about the human's psychological logic level (Random vs. Self-Focused vs. Defensive), creating a predictive probability vector to exploit human habits.
-* **Lookahead Expected Value (EV):** It anticipates "Power Cards" to calculate the EV of every possible branch, prioritizing moves that protect its own equity or destroy the opponent's.
+Each round, both players choose a card simultaneously. Cards have an element (fire, water or snow), a value and a colour. Element beats element as in rock-paper-scissors, and value breaks ties. A player wins by collecting either three cards of the same element in different colours, or one card of each element in different colours.
 
-### 2. The GTO Bot (Counterfactual Regret Minimization)
-Built to be mathematically unexploitable. If an exploitative bot plays a smart opponent, it becomes predictable. To solve this, I implemented a CFR algorithm.
-* **Parallel Timelines:** The bot plays millions of simultaneous rounds against itself.
-* **Regret Matching:** After every hypothetical game state, it calculates its "Regret" (the EV of a specific card minus the EV of its overall mixed strategy).
-* **Nash Equilibrium:** Over millions of iterations, the bot's strategy swings like a pendulum, eventually settling on a perfect percentage distribution (Nash Equilibrium) that makes the opponent mathematically indifferent to their choices.
+Power cards modify the payoff of a round or of future rounds:
 
-## Features: Power Cards
-Standard Rock-Paper-Scissors uses a static $3 \times 3$ zero-sum payoff matrix. Card-Jitsu introduces "Power Cards," which this engine simulates flawlessly:
-* **Immediate Matrix Overwrites:** Element shifts (e.g., Fire becomes Snow) and `LOW_WINS` dynamically warp the fundamental RPS payoff matrix *mid-reveal*.
-* **State & Equity Destruction:** Mass deck destructions and tableau discards reach into the object trackers to literally delete achieved equity.
-* **Next-Turn Constraints:** Element blocking mathematically reduces a player's probability of playing a specific element $P(X)$ to exactly $0$ for future turns.
+| Effect | How it is modelled |
+|---|---|
+| Element change (e.g. fire becomes snow) | Converts that element before the round is resolved |
+| `LOW_WINS` | Reverses the value comparison for that round |
+| `+2` / `−2` | Adds 2 to your value, or subtracts 2 from the opponent's, on the next turn |
+| Element block | Sets the probability of playing the blocked element to zero on the next turn |
+| Discard / deck effects | Removes cards from a player's collected tableau, reducing their progress |
 
-## The Output: Weaponising Weakness
-When running the CFR matrix training, the AI learns advanced meta-strategies without any hardcoded rules. 
+## 1. Exploitative bot (Bayesian opponent modelling)
 
-In a scenario where Player 1 holds a `10 FIRE [LOW_WINS]` card against Player 2's greater `11 WATER` and `12 SNOW` cards, human intuition says not to play the `10`. The CFR supercomputer calculates otherwise:
+Designed for play against humans.
+
+- **Level-k opponent model.** The bot keeps a belief over the opponent's reasoning level (random, self-focused or defensive) and updates it with Bayes' theorem after every round.
+- **Card evaluation.** For each candidate card, it counts the cards that would complete a winning set ("outs") in the next draw and, discounted, in the following one.
+- **Expected value with lookahead.** It weights each possible outcome, including power-card effects, by the predicted probability of the opponent's choice, and plays the card with the highest expected value.
+
+## 2. Equilibrium bot (counterfactual regret minimisation)
+
+Designed to be unexploitable.
+
+- The bot repeatedly plays against itself. After each iteration, it computes the **regret** of every card, defined as the value that card would have earned minus the value of the strategy actually played.
+- **Regret matching** sets the next strategy in proportion to positive accumulated regret.
+- The **average strategy** over all iterations converges towards a Nash equilibrium, at which neither player can gain by changing their mix.
+
+### Example
+
+Player 1 holds `10 FIRE [LOW_WINS]`, `4 WATER` and `7 SNOW`. Player 2 holds `3 FIRE`, `11 WATER` and `12 SNOW`. After 10,000 CFR iterations:
 
 ```text
-=========================================
-🧠 CFR MATRIX TRAINING (10000 ITERATIONS) 🧠
-=========================================
-... 2500 iterations ...
-... 5000 iterations ...
-... 7500 iterations ...
-
 --- PLAYER 1 GTO STRATEGY ---
 > 10 FIRE RED [LOW_WINS]: 33.21%
 > 4 WATER BLUE: 33.83%
@@ -48,3 +51,33 @@ In a scenario where Player 1 holds a `10 FIRE [LOW_WINS]` card against Player 2'
 > 3 FIRE YELLOW: 33.82%
 > 11 WATER ORANGE: 33.58%
 > 12 SNOW PURPLE: 32.60%
+```
+
+Because element decides most rounds and card value only breaks ties between cards of the same element, the equilibrium here stays close to the uniform rock-paper-scissors mix of one third each. The value and `LOW_WINS` effects shift it only slightly, and the solver recovers this without any of it being hard-coded.
+
+### Convergence
+
+![CFR convergence](convergence.png)
+
+Exploitability measures how much a best-responding opponent could win against the bot's average strategy, and it is zero at a Nash equilibrium. On the example deal it falls from about 0.10 after 10 iterations to 0.004 after 10,000, close to the 1/√T rate expected for CFR. This confirms that the near-uniform result is a converged equilibrium rather than the uniform starting strategy.
+
+## Running it
+
+Requires Python 3.9+. The convergence plot also needs NumPy and Matplotlib.
+
+```bash
+python card_jitsu_solver.py                      # train the CFR bot on the example deal
+python card_jitsu_solver.py --iterations 50000   # train for longer
+python card_jitsu_solver.py --play               # live game: enter your hand and each round's cards, get a recommended play
+python plot_convergence.py                       # regenerate convergence.png
+```
+
+## Limitations
+
+- **The CFR bot solves one fixed deal.** Both hands are fixed and there are no redraws, so the tree is three rounds deep. Unfinished games are scored with the same heuristic board evaluation the exploitative bot uses, not played out to the end.
+- **Element blocks are not enforced in the CFR tree.** They are recorded in the information set, but the blocked player can still choose the blocked element. The exploitative bot does enforce them.
+- **The exploitative bot uses hand-tuned heuristics.** These are the level-k prior, the 0.25 discount on second-draw outs, the 0.95 equity cap and the +0.2 bonus for block cards. It also predicts only the opponent's element, and treats value and colour as drawn from the remaining deck.
+
+## Background
+
+Built as a personal project to learn game theory and Bayesian inference in Python, alongside an MEng in Aeronautics with Spacecraft Engineering at Imperial College London.
